@@ -3,21 +3,22 @@ package main
 import (
 	"flag"
 	"log"
-	"net"
+	"os"
 
 	"github.com/chtozamm/javacode-final/gw-exchanger/internal/config"
 	"github.com/chtozamm/javacode-final/gw-exchanger/internal/server"
-	pb "github.com/chtozamm/javacode-final/proto-exchange/exchange"
+	"github.com/chtozamm/javacode-final/gw-exchanger/internal/storage/postgres"
+	logging "github.com/chtozamm/javacode-final/gw-exchanger/pkg/logs"
 	"github.com/joho/godotenv"
-	"google.golang.org/grpc"
 )
 
 func init() {
-	// Чтение аргументов командной строки
+	// Read command-line arguments
 	var path string
 	flag.StringVar(&path, "c", "", "Path to configuration file")
 	flag.Parse()
 
+	// Load environmental variables from file
 	if path != "" {
 		if err := godotenv.Load(path); err != nil {
 			log.Fatalf("Error loading env from file: %v", err)
@@ -26,22 +27,18 @@ func init() {
 }
 
 func main() {
-	// Загрузка конфигурации
-	cfg := config.NewConfig()
+	// Load configuration
+	cfg := config.Load()
 
-	// Создание TCP слушателя
-	lis, err := net.Listen("tcp", net.JoinHostPort(cfg.ServerHost, cfg.ServerPort))
+	// Set up logger
+	logger := logging.New(os.Stdout, cfg.LogLevel)
+
+	// Connect to database
+	db, err := postgres.NewConnector(cfg.Storage, logger)
 	if err != nil {
-		// TODO: handle error
+		logger.Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
-	// Создание gRPC сервера
-	s := grpc.NewServer()
-	pb.RegisterExchangeServiceServer(s, &server.Server{})
-
-	// Запуск gRPC сервера
-	log.Printf("Starting gRPC server on %s:%s", cfg.ServerHost, cfg.ServerPort)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("Failed to start gRPC server: %v", err)
-	}
+	// Start gRPC server
+	server.NewServer(logger, cfg, db).Start()
 }

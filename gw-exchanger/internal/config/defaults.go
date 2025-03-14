@@ -12,4 +12,8 @@ const (
 	DefaultDBName     = "postgres"
 	DefaultDBUsername = "postgres"
 	DefaultDBPassword = "secret"
+
+	DefaultLogLevel = "info"
+
+	DefaultCacheExpiration = 600
 )

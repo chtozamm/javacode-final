@@ -1,49 +1,59 @@
 package server
 
 import (
-	"context"
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/chtozamm/javacode-final/gw-exchanger/internal/config"
+	"github.com/chtozamm/javacode-final/gw-exchanger/internal/storage"
+	logging "github.com/chtozamm/javacode-final/gw-exchanger/pkg/logs"
 	pb "github.com/chtozamm/javacode-final/proto-exchange/exchange"
+	"google.golang.org/grpc"
 )
 
-type Server struct {
+type server struct {
 	pb.UnimplementedExchangeServiceServer
+	log *logging.Logger
+	cfg *config.Config
+	db  storage.Repository
 }
 
-func (s *Server) GetExchangeRates(ctx context.Context, req *pb.Empty) (*pb.ExchangeRatesResponse, error) {
-	// TODO: retrieve exchange rates from database
-	rates := map[string]float32{
-		"USD": 1,
-		"EUR": 0.92008,
-		"RUB": 85.84,
+func NewServer(logger *logging.Logger, cfg *config.Config, db storage.Repository) *server {
+
+	srv := &server{
+		log: logger,
+		cfg: cfg,
+		db:  db,
 	}
 
-	ratesResponse := &pb.ExchangeRatesResponse{
-		Rates: rates,
-	}
-
-	// TODO: handle potential errors using status package
-	// if err != nil {
-	// 	return nil, status.Errorf(codes.Internal, "")
-	// }
-
-	return ratesResponse, nil
+	return srv
 }
 
-func (s *Server) GetExchangeRateForCurrency(ctx context.Context, req *pb.CurrencyRequest) (*pb.ExchangeRateResponse, error) {
-	// TODO: retrieve exchange rate from database
-	rates := map[string]float32{
-		"USD": 1,
-		"EUR": 0.92008,
-		"RUB": 85.84,
-	}
-	rate := rates[req.ToCurrency] / rates[req.FromCurrency]
-
-	rateResponse := &pb.ExchangeRateResponse{
-		FromCurrency: req.FromCurrency,
-		ToCurrency:   req.ToCurrency,
-		Rate:         rate,
+func (s *server) Start() {
+	// Create TCP listener
+	lis, err := net.Listen("tcp", net.JoinHostPort(s.cfg.ServerHost, s.cfg.ServerPort))
+	if err != nil {
+		s.log.Fatal().Err(err).Msg("Failed to create TCP listener")
 	}
 
-	return rateResponse, nil
+	// Create gRPC server
+	grpcServer := grpc.NewServer()
+	pb.RegisterExchangeServiceServer(grpcServer, s)
+
+	// Start gRPC server
+	s.log.Info().Msgf("Starting gRPC server on %s:%s", s.cfg.ServerHost, s.cfg.ServerPort)
+	go func() {
+		if err := grpcServer.Serve(lis); err != nil {
+			s.log.Fatal().Err(err).Msg("Failed to start gRPC server")
+		}
+	}()
+
+	// Handle graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	s.log.Info().Msg("Shutting down gRPC server")
+	grpcServer.GracefulStop()
 }

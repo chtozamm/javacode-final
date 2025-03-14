@@ -1,4 +1,4 @@
-.PHONY: run build lint audit test
+.PHONY: run build lint audit
 
 run:
 	./main -c config.env
@@ -14,5 +14,3 @@ lint:
 audit:
 	gosec ./...
 
-test:
-	go test -vet=off ./...
